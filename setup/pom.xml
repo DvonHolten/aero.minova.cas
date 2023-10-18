@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>aero.minova</groupId>
 		<artifactId>cas.parent</artifactId>
-		<version>12.66.3-SNAPSHOT</version>
+		<version>12.67.1-SNAPSHOT</version>
 	</parent>
 
     <scm>
@@ -58,7 +58,7 @@
             <groupId>org.jacoco</groupId>
             <artifactId>org.jacoco.agent</artifactId>
             <classifier>runtime</classifier>
-            <version>0.8.10</version>
+            <version>0.8.11</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
