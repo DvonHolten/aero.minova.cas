@@ -9,15 +9,16 @@
 # the `language` matrix defined below to confirm you have the correct set of
 # supported CodeQL languages.
 #
-name: "CodeQL"
-
+name: CodeQL
 on:
-  push:
-    branches: [ "main" ]
 # Der Worflow ist erstmal deaktiviert, weil dieser nicht funktioniert. Siehe #847.
+#on:
+#  push:
+#    branches: [ "main" ]
 #  pull_request:
 #    # The branches below must be a subset of the branches above
 #    branches: [ "main" ]
+  workflow_dispatch:
   schedule:
     - cron: '16 12 * * 2'
 
@@ -48,7 +49,7 @@ jobs:
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v2
+      uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
         # If you wish to specify custom queries, you can do so here or in a config file.
@@ -94,6 +95,6 @@ jobs:
         GITHUB_ACCESS_TOKEN: ${{ secrets.MAIN_GITHUB_RELEASE_TOKEN }}    
     
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v2
+      uses: github/codeql-action/analyze@v3
       with:
         category: "/language:${{matrix.language}}"
