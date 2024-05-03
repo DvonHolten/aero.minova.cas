@@ -52,6 +52,16 @@ Einige Sachen beziehen sich auf allgemeine Spring-Boot-Dinge und
 sind link:https://github.com/minova-afis/aero.minova.spring.service.example[hier] und
 link:https://github.com/minova-afis/aero.minova.spring.maven.root[hier] dokumentiert.
 
+## Fehler ohne erkennbaren Fehler-Eintrag im Log
+
+CAS in der Konsole starten, um den Fehler zumindestens in der Konsole zu sehen.
+Es kann sein, dass eine Exception wie die MethodNotFoundException nicht im Log angezeigt wird,
+weil man eine solche Exception in der Regel nicht fangen kann.
+
+Man kann hier auch die dazugehörige `wrapper.log` des Dienstes einsehen.
+Allerdings gab es schon fälle, wo ein Fehler in der Konsole sichtbar ist,
+aber nicht in der `wrapper.log`.
+
 ## Log-Files durchsuchen.
 
 Folgendes Schema kann man beim Log-Durchsuchen häufig verwenden:
@@ -161,6 +171,69 @@ EXEC sp_executesql @drop;
 ```
 
 6. CAS starten und das Setup ganz normal ausführen.
+
+### ALTER TABLE statement conflicted with the FOREIGN KEY constraint
+
+Fehler tritt bei Version 12.67.2 auf
+
+Fehlermeldung:
+
+```
+Caused by: java.lang.RuntimeException: java.lang.RuntimeException: java.lang.RuntimeException: com.microsoft.sqlserver.jdbc.SQLServerException: The ALTER TABLE statement conflicted with the FOREIGN KEY constraint "FK_xtcasLuUserPrivilegeUserGroup_UserPrivilegeKey". The conflict occurred in database "SISMINOVADEMODEV", table "dbo.xtcasUserPrivilege", column 'KeyLong'.
+	at aero.minova.cas.setup.SetupService.lambda$setup$0(SetupService.java:81)
+	at aero.minova.cas.controller.SqlProcedureController.checkForExtension(SqlProcedureController.java:208)
+	at aero.minova.cas.controller.SqlProcedureController.executeProcedure(SqlProcedureController.java:175)
+	... 129 more
+Caused by: java.lang.RuntimeException: java.lang.RuntimeException: com.microsoft.sqlserver.jdbc.SQLServerException: The ALTER TABLE statement conflicted with the FOREIGN KEY constraint "FK_xtcasLuUserPrivilegeUserGroup_UserPrivilegeKey". The conflict occurred in database "SISMINOVADEMODEV", table "dbo.xtcasUserPrivilege", column 'KeyLong'.
+	at aero.minova.cas.setup.InstallToolIntegration.installSetup(InstallToolIntegration.java:86)
+	at aero.minova.cas.setup.SetupService.readSetups(SetupService.java:102)
+	at aero.minova.cas.setup.SetupService.lambda$setup$0(SetupService.java:69)
+	... 131 more
+Caused by: java.lang.RuntimeException: com.microsoft.sqlserver.jdbc.SQLServerException: The ALTER TABLE statement conflicted with the FOREIGN KEY constraint "FK_xtcasLuUserPrivilegeUserGroup_UserPrivilegeKey". The conflict occurred in database "SISMINOVADEMODEV", table "dbo.xtcasUserPrivilege", column 'KeyLong'.
+	at ch.minova.install.setup.BaseSetup.readoutSchemaCreate(BaseSetup.java:233)
+	at aero.minova.cas.setup.InstallToolIntegration.installSetup(InstallToolIntegration.java:73)
+	... 133 more
+Caused by: com.microsoft.sqlserver.jdbc.SQLServerException: The ALTER TABLE statement conflicted with the FOREIGN KEY constraint "FK_xtcasLuUserPrivilegeUserGroup_UserPrivilegeKey". The conflict occurred in database "SISMINOVADEMODEV", table "dbo.xtcasUserPrivilege", column 'KeyLong'.
+	at com.microsoft.sqlserver.jdbc.SQLServerException.makeFromDatabaseError(SQLServerException.java:265)
+	at com.microsoft.sqlserver.jdbc.SQLServerStatement.getNextResult(SQLServerStatement.java:1676)
+	at com.microsoft.sqlserver.jdbc.SQLServerStatement.doExecuteStatement(SQLServerStatement.java:907)
+	at com.microsoft.sqlserver.jdbc.SQLServerStatement$StmtExecCmd.doExecute(SQLServerStatement.java:802)
+	at com.microsoft.sqlserver.jdbc.TDSCommand.execute(IOBuffer.java:7620)
+	at com.microsoft.sqlserver.jdbc.SQLServerConnection.executeCommand(SQLServerConnection.java:3916)
+	at com.microsoft.sqlserver.jdbc.SQLServerStatement.executeCommand(SQLServerStatement.java:268)
+	at com.microsoft.sqlserver.jdbc.SQLServerStatement.executeStatement(SQLServerStatement.java:242)
+	at com.microsoft.sqlserver.jdbc.SQLServerStatement.execute(SQLServerStatement.java:775)
+	at com.zaxxer.hikari.pool.ProxyStatement.execute(ProxyStatement.java:94)
+	at com.zaxxer.hikari.pool.HikariProxyStatement.execute(HikariProxyStatement.java)
+	at ch.minova.install.setup.BaseSetup.readoutSchemaCreate(BaseSetup.java:225)
+	... 134 more
+```
+Dieser Fehler tritt auf, wenn mit der Version 12.67.2 ein setup ausgeführt wurde und dann auf eine vorherige Version 12.67.0 wechselt. Die CAS Tabellen in der Datenbank können nun unsichtbare Keys enthalten. Sie sind nicht über ein SQL-Tool wie z.B. AZURE Data Studio sichtbar. Folgende Lösungsansätze sind möglich:
+
+**1. Versuchen alle Keys zu löschen**
+```
+declare @drop NVARCHAR(MAX) = N'';
+
+SELECT @drop += N'
+  ALTER TABLE ' + QUOTENAME(s.name) + N'.'
+  + QUOTENAME(t.name) + N' DROP CONSTRAINT '
+  + QUOTENAME(c.name) + ';'
+FROM sys.objects AS c
+INNER JOIN sys.tables AS t
+ON c.parent_object_id = t.[object_id]
+INNER JOIN sys.schemas AS s 
+ON t.[schema_id] = s.[schema_id]
+WHERE t.name like '%xtcas%'
+ORDER BY c.[type];
+
+EXEC sp_executesql @drop;
+```
+
+**2. Betroffene Tabellen löschen**
+
+Die Fehlermeldung teilt einem mit welche Tabelle den Fehler wirft und dieser muss gelöscht werden. Welche Tabelle betroffen ist ist im Key ersichtlich. Im oberen Beispiel ist der Key `FK_xtcasLuUserPrivilegeUserGroup_UserPrivilegeKey` und die dazugehörige Tabelle ist die `xtcasLuUserPrivilegeUserGroup`
+
+Wieder setup ausführen und schauen, ob nun die Keys korrekt sind. Wird der Fehler weiterhin geworfen aber mit einer anderen Tabelle Schritt 2 wiederholen.
 
 
 ## ClassNotFoundException - Jar von Abhängigkeit fehlt.
@@ -402,3 +475,204 @@ Folgendes Vorgehen ist am besten:
 * Im Stack-Trace die Methode für die Verbindung und Anmeldung finden und
   Break-Point an dieser stelle setzen.
 * Im Debug-Modus die Anmelde-Daten etc. in den Variablen prüfen.
+
+### Einige Benutzer funktionieren bei der Anmeldung und andere nicht.
+Man sollte darauf achten, dass die Nutzer immer die richtige Domäne haben,
+da das CAS zur Zeit nur eine Domäne gleichzeitig unterstützt.
+Nutzer von mehreren Domänene gleichzeitig werden nicht unterstützt.
+
+Die Domäne ist im Benutzerprinzipalname (=UPN=User Principal Name) der Teil nach dem `@` Symbol.
+
+## Zip oder MD5-Dateien aus `Internal/` können vom WFC nicht ausgelesen werden.
+
+```
+ msg.FileError %C:\ClusterStorage\Volume1\DUS\Shared Data\Program Files\SIS12\SIS\Internal\Zips\plugins.zip
+2024-02-27T14:31:42.682 minova : files/zip: reports.zip
+2024-02-27T14:31:42.705 minova : CAS : Execute : INSERT INTO xtcasError (Username, ErrorMessage, Date) VALUES (?,?,?) with values: minova, msg.FileError %C:\ClusterStorage\Volume1\DUS\Shared Data\Program Files\SIS12\SIS\Internal\Zips\reports.zip, 2024-02-27 14:31:42.7052953
+2024-02-27T14:31:42.706 minova : CAS: Showing Stacktrace : java.nio.file.NoSuchFileException: msg.FileError %C:\ClusterStorage\Volume1\DUS\Shared Data\Program Files\SIS12\SIS\Internal\Zips\reports.zip
+	at aero.minova.cas.service.FilesService.checkLegalPath(FilesService.java:193)
+	at aero.minova.cas.controller.FilesController.getZip(FilesController.java:212)
+	at aero.minova.cas.controller.FilesController.getFile(FilesController.java:162)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+	at java.base/java.lang.reflect.Method.invoke(Unknown Source)
+```
+
+Die Zip und MD5-Dateien werden beim Start des CAS erstellt.
+Allerdings dauert dies etwas und es gibt kein Logging dazu.
+
+
+```
+        "returnErrorMessage": {
+            "detailsMessage": "Java heap space",
+            "cause": "aero.minova.cas.api.domain.ProcedureException: java.lang.OutOfMemoryError: Java heap space",
+            "trace": [
+                "aero.minova.cas.api.domain.ProcedureException: java.lang.OutOfMemoryError: Java heap space",
+                "aero.minova.cas.controller.SqlProcedureController.executeProcedure(SqlProcedureController.java:191)",
+                "java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)",
+                "java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)",
+                "java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)",
+                "java.base/java.lang.reflect.Method.invoke(Unknown Source)",
+                "org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:205)",
+                "org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:150)",
+                "org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118)",
+                "org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:884)",
+                "org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:797)",
+                "org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87)",
+                "org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1081)",
+                "org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:974)",
+                "org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1011)",
+                "org.springframework.web.servlet.FrameworkServlet.doPost(FrameworkServlet.java:914)",
+                "jakarta.servlet.http.HttpServlet.service(HttpServlet.java:590)",
+                "org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)",
+                "jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658)",
+                "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:205)",
+                "org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:149)",
+                "org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)",
+                "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:174)",
+                "org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:149)",
+                "org.springframework.security.web.FilterChainProxy.lambda$doFilterInternal$3(FilterChainProxy.java:231)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$FilterObservation$SimpleFilterObservation.lambda$wrap$1(ObservationFilterChainDecorator.java:479)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$AroundFilterObservation$SimpleAroundFilterObservation.lambda$wrap$1(ObservationFilterChainDecorator.java:340)",
+                "org.springframework.security.web.ObservationFilterChainDecorator.lambda$wrapSecured$0(ObservationFilterChainDecorator.java:82)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:128)",
+                "org.springframework.security.web.access.intercept.AuthorizationFilter.doFilter(AuthorizationFilter.java:100)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.access.ExceptionTranslationFilter.doFilter(ExceptionTranslationFilter.java:126)",
+                "org.springframework.security.web.access.ExceptionTranslationFilter.doFilter(ExceptionTranslationFilter.java:120)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.authentication.AnonymousAuthenticationFilter.doFilter(AnonymousAuthenticationFilter.java:100)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter.doFilter(SecurityContextHolderAwareRequestFilter.java:179)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.savedrequest.RequestCacheAwareFilter.doFilter(RequestCacheAwareFilter.java:63)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.authentication.www.BasicAuthenticationFilter.doFilterInternal(BasicAuthenticationFilter.java:200)",
+                "org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.authentication.AbstractAuthenticationProcessingFilter.doFilter(AbstractAuthenticationProcessingFilter.java:227)",
+                "org.springframework.security.web.authentication.AbstractAuthenticationProcessingFilter.doFilter(AbstractAuthenticationProcessingFilter.java:221)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.authentication.logout.LogoutFilter.doFilter(LogoutFilter.java:107)",
+                "org.springframework.security.web.authentication.logout.LogoutFilter.doFilter(LogoutFilter.java:93)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.web.filter.CorsFilter.doFilterInternal(CorsFilter.java:91)",
+                "org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.header.HeaderWriterFilter.doHeadersAfter(HeaderWriterFilter.java:90)",
+                "org.springframework.security.web.header.HeaderWriterFilter.doFilterInternal(HeaderWriterFilter.java:75)",
+                "org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.context.SecurityContextHolderFilter.doFilter(SecurityContextHolderFilter.java:82)",
+                "org.springframework.security.web.context.SecurityContextHolderFilter.doFilter(SecurityContextHolderFilter.java:69)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter.doFilterInternal(WebAsyncManagerIntegrationFilter.java:62)",
+                "org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:227)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.session.DisableEncodeUrlFilter.doFilterInternal(DisableEncodeUrlFilter.java:42)",
+                "org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.wrapFilter(ObservationFilterChainDecorator.java:240)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$AroundFilterObservation$SimpleAroundFilterObservation.lambda$wrap$0(ObservationFilterChainDecorator.java:323)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$ObservationFilter.doFilter(ObservationFilterChainDecorator.java:224)",
+                "org.springframework.security.web.ObservationFilterChainDecorator$VirtualFilterChain.doFilter(ObservationFilterChainDecorator.java:137)",
+                "org.springframework.security.web.FilterChainProxy.doFilterInternal(FilterChainProxy.java:233)",
+                "org.springframework.security.web.FilterChainProxy.doFilter(FilterChainProxy.java:191)",
+                "org.springframework.web.filter.DelegatingFilterProxy.invokeDelegate(DelegatingFilterProxy.java:352)",
+                "org.springframework.web.filter.DelegatingFilterProxy.doFilter(DelegatingFilterProxy.java:268)",
+                "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:174)",
+                "org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:149)",
+                "org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)",
+                "org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)",
+                "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:174)",
+                "org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:149)",
+                "org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)",
+                "org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)",
+                "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:174)",
+                "org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:149)",
+                "org.springframework.web.filter.ServerHttpObservationFilter.doFilterInternal(ServerHttpObservationFilter.java:109)",
+                "org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)",
+                "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:174)",
+                "org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:149)",
+                "org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)",
+                "org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)",
+                "org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:174)",
+                "org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:149)",
+                "org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:167)",
+                "org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:90)",
+                "org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:482)",
+                "org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:115)",
+                "org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:93)",
+                "org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:74)",
+                "org.apache.catalina.valves.RemoteIpValve.invoke(RemoteIpValve.java:735)",
+                "org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:341)",
+                "org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:391)",
+                "org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63)",
+                "org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:894)",
+                "org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1740)",
+                "org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)",
+                "org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1191)",
+                "org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659)",
+                "org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61)",
+                "java.base/java.lang.Thread.run(Unknown Source)",
+                "Caused by: java.lang.OutOfMemoryError: Java heap space",
+                "java.base/jdk.internal.misc.Unsafe.allocateUninitializedArray(Unknown Source)",
+                "java.base/java.lang.StringConcatHelper.newArray(Unknown Source)",
+                "java.base/java.lang.StringConcatHelper.newArrayWithSuffix(Unknown Source)",
+                "java.base/java.lang.invoke.DirectMethodHandle$Holder.invokeStatic(DirectMethodHandle$Holder)",
+                "java.base/java.lang.invoke.LambdaForm$MH/0x00007f2701018000.invoke(LambdaForm$MH)",
+                "java.base/java.lang.invoke.LambdaForm$MH/0x00007f27010ce000.invoke(LambdaForm$MH)",
+                "java.base/java.lang.invoke.Invokers$Holder.linkToTargetMethod(Invokers$Holder)",
+                "ch.minova.install.setup.schema.XmlForeignKeyContraint.getSQLCode(XmlForeignKeyContraint.java:108)",
+                "ch.minova.install.setup.schema.XmlDatabaseTable.getXMl_FK_Constraints(XmlDatabaseTable.java:263)",
+                "ch.minova.install.setup.schema.XmlDatabaseTable.compareConstrainsFK(XmlDatabaseTable.java:252)",
+                "ch.minova.install.setup.BaseSetup.generateUpdateTableConstraintsFK(BaseSetup.java:546)",
+                "ch.minova.install.setup.BaseSetup.readoutSchemaCreate(BaseSetup.java:220)",
+                "aero.minova.cas.setup.InstallToolIntegration.installSetup(InstallToolIntegration.java:73)",
+                "aero.minova.cas.setup.SetupService.readSetups(SetupService.java:102)",
+                "aero.minova.cas.setup.SetupService.lambda$setup$0(SetupService.java:69)",
+                "aero.minova.cas.setup.SetupService$$Lambda$1093/0x00007f2701870c40.apply(Unknown Source)",
+                "aero.minova.cas.controller.SqlProcedureController.checkForExtension(SqlProcedureController.java:208)",
+                "aero.minova.cas.controller.SqlProcedureController.executeProcedure(SqlProcedureController.java:175)",
+                "java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)",
+                "java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(Unknown Source)",
+                "java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(Unknown Source)",
+                "java.base/java.lang.reflect.Method.invoke(Unknown Source)",
+                "org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:205)",
+                "org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:150)",
+                "org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118)",
+                "org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:884)",
+                "org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:797)",
+                "org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87)",
+                "org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1081)",
+                "org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:974)",
+                "org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1011)",
+                "org.springframework.web.servlet.FrameworkServlet.doPost(FrameworkServlet.java:914)"
+            ]
+        }
+    },
+
+```
+Bei diesem Fehler einfach das cas neustarten.

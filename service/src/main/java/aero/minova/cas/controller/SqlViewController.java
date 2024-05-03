@@ -58,8 +58,9 @@ public class SqlViewController {
 	 */
 	public void registerExtension(String name, Function<Table, Table> ext) {
 		if (extensions.containsKey(name)) {
-			customLogger.logSetup("Cannot register two extensions with the same name: " + name);
-			throw new IllegalArgumentException(name);
+			String errorMessage = "Cannot register two extensions with the same name: " + name;
+			customLogger.logSetup(errorMessage);
+			throw new IllegalArgumentException(errorMessage);
 		}
 		extensions.put(name, ext);
 	}
@@ -102,12 +103,16 @@ public class SqlViewController {
 	@PostMapping(value = "data/index", produces = "application/json")
 	public Table getIndexView(@RequestBody Table inputTable) throws Exception {
 		customLogger.logUserRequest(": data/view: ", inputTable);
+		return getIndexView(inputTable, true);
+	}
+
+	public Table getIndexView(@RequestBody Table inputTable, boolean checkForExtension) throws Exception {
 		// Die Privilegien-Abfrage muss vor allem Anderen passieren. Falls das Privileg nicht vorhanden ist MUSS eine TableException geworfen werden.
 		List<Row> authoritiesForThisTable = securityService.getPrivilegePermissions(inputTable.getName());
 		if (authoritiesForThisTable.isEmpty()) {
 			throw new TableException(new RuntimeException("msg.PrivilegeError %" + inputTable.getName()));
 		}
-		if (extensions.containsKey(inputTable.getName())) {
+		if (checkForExtension && extensions.containsKey(inputTable.getName())) {
 			synchronized (extensionSynchronizer) {
 				return extensions.get(inputTable.getName()).apply(inputTable);
 			}
