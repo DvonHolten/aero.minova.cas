@@ -4,11 +4,41 @@ Alle wesentlichen Änderungen für dieses Projekt werden hier dokumentiert.
 Das Format basiert auf link:https://keepachangelog.com/en/1.0.0[Keep a Changelog].
 
 ## Unreleased
+
+## [13.6.0] — 2025-07-02
+* Maske LDAP User: Mehr Zeichen für KeyText erlauben
+* HUB Funktionalität, siehe link:https://github.com/minova-afis/aero.minova.cas/issues/1272[#1272]
+* Setup komplett loggen
+* ConsoleLog definieren und alle System.outs und Stacktraces auch in ein File loggen
+* SelfProbingService mit der Einstellung bereitstellen, womit Verbindungsprobleme zum SQL-Server erkannt werden.
+  Gibt es ein SQL-Verbindungsproblem wird der Dienst beendet, damit dieser von Kubernetes automatisch neu gestartet wird.
+  Zudem wurden die Hikari-Einstellung so angepasst, dass Verbindungsprobleme besser erkannt/vermieden werden.
+
+## [13.5.3/4] — 2025-01-14
+* ErrorMessage Spalte in der Datenbank auf Länge von 2000 Zeichen erweitern
+* Setup nicht abbrechen, wenn das setup.xml File einer Abhängigkeit nicht gefunden wurde
+* Wenn Prozeduren vom CAS selbst aufgerufen werden User "CAS_JPA" für LastUser in der Datenbank setzten
+* ServiceMessage.messageCreationDate nicht als Timestamp. Sonst bekommen wir mit den SQL-Prozeduren Probleme, da diese einen expliziten Wert in die Spalte einfügen.
+
+## [13.5.2] — 2024-11-04
+* Bei Fehler in LDAP Login username Loggen
+* Limit setzten bei Indexanfragen über die Base-Extension korrigieren
+
+## [13.5.1] — 2024-10-17
+* LastDate nicht als TIMESTAMP Spalte erstellen
+* Login für Database-User mit SQL Datenbank ausbessern
+* HTML-Dateien beim Bauen wieder mit ausliefern
+
+## [13.5.0] — 2024-10-09
 * CAS Versiom beim Start auslesen und über /version von Clients auslesbar machen.
 * Es wird nun Java 21 verwendet.
 
 * RowLevelSecurity mit JOOQ ermöglichen/ausbessern
 * Bequemlichkeits-Methoden für Nutzerverwaltung in Services
+
+* Fehlerhandling robuster gestalten
+
+* LastDate im Java-Code keinen Default-Wert geben, da es sich um eine TIMESTAMP Spalte handelt, in die in SQL kein explizierter Wert eingetragen werden darf
 
 ## [13.4.0] — 2024-07-31
 * Umlaute in i18n Datei ausbessern
